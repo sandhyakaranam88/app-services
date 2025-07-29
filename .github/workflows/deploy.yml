@@ -1,0 +1,58 @@
+name: CI/CD Deployment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-1
+  PROJECT_NAME: sandhya18
+  SERVICE1_DIR: service1
+  SERVICE2_DIR: service2
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and push Service 1 image
+        run: |
+          SERVICE1_REPO=$(aws ecr describe-repositories --repository-names "${PROJECT_NAME}-service1" --region $AWS_REGION --query 'repositories[0].repositoryUri' --output text)
+          docker build -t $SERVICE1_REPO:latest $SERVICE1_DIR
+          docker push $SERVICE1_REPO:latest
+
+      - name: Build and push Service 2 image
+        run: |
+          SERVICE2_REPO=$(aws ecr describe-repositories --repository-names "${PROJECT_NAME}-service2" --region $AWS_REGION --query 'repositories[0].repositoryUri' --output text)
+          docker build -t $SERVICE2_REPO:latest $SERVICE2_DIR
+          docker push $SERVICE2_REPO:latest
+
+      - name: Force ECS deployment update (Service 1)
+        run: |
+          aws ecs update-service \
+            --cluster ${PROJECT_NAME}-cluster \
+            --service ${PROJECT_NAME}-service1 \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Force ECS deployment update (Service 2)
+        run: |
+          aws ecs update-service \
+            --cluster ${PROJECT_NAME}-cluster \
+            --service ${PROJECT_NAME}-service2 \
+            --force-new-deployment \
+            --region $AWS_REGION
